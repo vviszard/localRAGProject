@@ -71,7 +71,7 @@ if __name__ == "__main__":
     url = input("please enter the url of the webpage: ")
     knowledge = web_scraper(url)
     
-    print(f"📊 Context loaded: {len(knowledge)} characters.")
+    print(f"Context loaded: {len(knowledge)} characters.")
     
     while True:
         q = input("Ask a question or type 'quit' to exit: ")
@@ -80,4 +80,4 @@ if __name__ == "__main__":
         if len(knowledge) > 100:
             ask_gpt(q, knowledge)
         else:
-            print("❌ Cannot ask question: Context is too short. Check your internet/headers.")
+            print("Cannot ask question: Context is too short. Check your internet/headers.")
