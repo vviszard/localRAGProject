@@ -1,83 +1,74 @@
-import requests
-from bs4 import BeautifulSoup
 import ollama
 import os
 
-def web_scraper(url, file_path="scraped.txt"):
-    # Identity headers must be defined here!
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0'
-    }
-    
-    if os.path.exists(file_path):
-        print(f"...loading context information from {file_path}...")
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-    
-    try:
-        print(f"Scraping {url}...")
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')       
-        
-        # Look for the article body
-        content = soup.find(id="mw-content-text")
-        
-        if content:
-            paragraphs = content.find_all('p')
-            text = " ".join([p.get_text() for p in paragraphs]).strip()
-        else:
-            # Fallback: Just grab all paragraph text if ID is missing
-            text = " ".join([p.get_text() for p in soup.find_all('p')]).strip()
+BRAIN_DIR = "./brainSpace"
+MODEL = "qwen2.5:0.5b"
 
-        # Final check: Did we actually get content?
-        if len(text) < 100:
-            return "Error: Wikipedia blocked the content or page is empty."
-
-        text = text[:10000] # Cap it for your 4GB RAM
-        
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(text)
-        print("Information Saved Successfully.")
-        return text
+def local_aggregator():
+    # Reads the files in the folder and return structured context
+    local_text = ""
     
-    except Exception as e:
-        return f"Error: {e}"
-
-def ask_gpt(question, context):
-    print("\nAI is analyzing the document...")
+    if not os.path.exists(BRAIN_DIR):
+        os.makedirs(BRAIN_DIR)
+        print(f"'{BRAIN_DIR}' Directory created. Please add your files here.")
+        return ""
+    # get all the '.txt' and '.md' files
     
-    messages = [
-        {"role": "system", "content": "You are a literal document reader. Use the provided context only. If the answer isn't there, say 'Information not found.'"},
-        {"role": "user", "content": f"CONTEXT:\n{context}\n\nQUESTION: {question}"}
-    ]
+    files = [f for f in os.listdir(BRAIN_DIR) if f.endswith(('.txt','.md'))]
     
-    stream = ollama.chat(
-        model='qwen2.5:0.5b',
-        messages=messages,
-        stream=True,
-        options={"temperature": 0}
+    if not files:
+        print("The Folder is empty.")
+        return ""
+    
+    for filename in files:
+        file_path = os.path.join(BRAIN_DIR, filename)
+        try:
+            with open(file_path,"r", encoding= "utf-8") as f:
+                content = f.read()
+                local_text += f"\n\n[DOCUMENT: {filename}]\n{content}\n[END {filename}]\n"
+        except Exception as e:
+            print(f"Error reading file {filename}: {e}")
+            
+    return local_text
+                
+def ask_ai(question, context):
+    system_prompt = (
+        "You are a Local Document Assistant. Use ONLY the provided context to answer."
+        "If the answer is not in the context, say 'I don't have that info in my local files.'"
     )
     
+    trimmed_context = context[:8000]
+    
+    prompt_with_context = f"CONTEXT: \n{trimmed_context}\n\nQUESTION: {question}"
+    
+    print("\nAI is analyzing the documents...")
+    
+    stream = ollama.generate(
+        model = MODEL,
+        prompt = prompt_with_context,
+        system = system_prompt,
+        stream = True,
+        options = {"temperature": 0.1})
+       
     print("\nGPT: ", end="")
     for chunk in stream:
-        print(chunk['message']['content'], end="", flush=True)
+        print(chunk['response'], end="", flush=True)
     print("\n")
 
 if __name__ == "__main__":
-    # IMPORTANT: Delete 'scraped.txt' before running this so it re-scrapes correctly!
-    if os.path.exists("scraped.txt"):
-        os.remove("scraped.txt")
-        
-    url = input("please enter the url of the webpage: ")
-    knowledge = web_scraper(url)
-    
-    print(f"Context loaded: {len(knowledge)} characters.")
-    
+    print("...local docments reader...")
+    knowledge = local_aggregator()
+
+    if not knowledge:
+        print("No data found. Add files in the folder")
+    else:
+        print(f"data loaded: {len(knowledge)} characters.")
+
     while True:
         q = input("Ask a question or type 'quit' to exit: ")
+        
         if q.lower() == 'quit':
             break
-        if len(knowledge) > 100:
-            ask_gpt(q, knowledge)
-        else:
-            print("Cannot ask question: Context is too short. Check your internet/headers.")
+        
+        if q.strip():
+            ask_ai(q, knowledge)
