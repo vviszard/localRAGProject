@@ -1,5 +1,8 @@
 import ollama
 import os
+import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 BRAIN_DIR = "./brainSpace"
 MODEL = "qwen2.5:0.5b"
@@ -30,14 +33,23 @@ def local_aggregator():
             print(f"Error reading file {filename}: {e}")
             
     return local_text
-                
+
+class BrainSentry(FileSystemEventHandler):
+    def on_modified(self, event):
+        if not event.is_directory and event.src_path.endswith(('.txt','.md')):
+            global knowledge
+            print(f"\nChange detected in {os.path.basename(event.src_path)}... refreshing context data")
+            knowledge = local_aggregator()
+            print("\nGPT: ", end="")
+            
 def ask_ai(question, context):
     system_prompt = (
         "You are a Local Document Assistant. Use ONLY the provided context to answer."
         "If the answer is not in the context, say 'I don't have that info in my local files.'"
+        "Information is spread across multiple [DOCUMENT] tags. Link them together!"
     )
     
-    trimmed_context = context[:8000]
+    trimmed_context = context[:10000]
     
     prompt_with_context = f"CONTEXT: \n{trimmed_context}\n\nQUESTION: {question}"
     
@@ -58,17 +70,27 @@ def ask_ai(question, context):
 if __name__ == "__main__":
     print("...local docments reader...")
     knowledge = local_aggregator()
+    
+    event_handler = BrainSentry()
+    observer = Observer()
+    observer.schedule(event_handler, BRAIN_DIR, recursive= False)
+    observer.start()
 
     if not knowledge:
         print("No data found. Add files in the folder")
     else:
         print(f"data loaded: {len(knowledge)} characters.")
-
-    while True:
-        q = input("Ask a question or type 'quit' to exit: ")
         
-        if q.lower() == 'quit':
-            break
+    try:
         
-        if q.strip():
-            ask_ai(q, knowledge)
+        while True:
+            q = input("Ask a question or type 'quit' to exit: ")
+            
+            if q.lower() == 'quit':
+                break
+            
+            if q.strip():
+                ask_ai(q, knowledge)
+    finally:
+        observer.stop()
+        observer.join()
