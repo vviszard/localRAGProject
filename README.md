@@ -19,5 +19,5 @@ A lightweight Retrieval-Augmented Generation (RAG) system built to run on consum
 - **Host CPU:** AMD Ryzen 5 4600G (6 Cores / 12 Threads)
 - **Virtualization:** VirtualBox (Ubuntu 22.04+ Guest)
 - **Memory Allocation:** 4GB RAM 
-- **AI Model:** Qwen2.5-0.5B (Inference via Ollama)
+- **AI Model:** Qwen2.5-1.5B (Inference via Ollama)
 
