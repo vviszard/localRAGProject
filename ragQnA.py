@@ -61,32 +61,33 @@ class BrainSentry(FileSystemEventHandler):
             knowledge = local_aggregator()
             print("\nGPT: ", end="")
             
-def ask_ai(question, context):
-    system_prompt = (
-        "You are a Local Document Assistant. Use ONLY the provided context to answer."
-        "If the answer is not in the context, say 'I don't have that info in my local files.'"
-        "Information is spread across multiple [DOCUMENT] tags. Link them together!"
-        "You must always start your answer with: 'Source: [Filename] (Part X)' if applicable"
-        "If the answer involves multiple documents, list all of them"
-    )
+def ask_ai(question, context, history):
     
-    trimmed_context = context[:10000]
+    messages = [{"role":"system",
+                 "content": (
+                     "You are a Local Document Assistant. Use ONLY the provided context to answer."
+                     "Always start with 'Source: [Filename]'. Link info across multiple docs.")},
+                *history,
+                {"role":"user","content": f"CONTEXT: \n{context[:10000]}\n\nQUESTION: {question}"}]
+    print("\nAI is analyzing...")
     
-    prompt_with_context = f"CONTEXT: \n{trimmed_context}\n\nQUESTION: {question}"
+    response = ollama.chat(model= MODEL, messages= messages, stream = True)
     
-    print("\nAI is analyzing the documents...")
-    
-    stream = ollama.generate(
-        model = MODEL,
-        prompt = prompt_with_context,
-        system = system_prompt,
-        stream = True,
-        options = {"temperature": 0.1})
-       
-    print("\nGPT: ", end="")
-    for chunk in stream:
-        print(chunk['response'], end="", flush=True)
+    full_response= ""
+    print("\nGPT: ", end= "")
+    for chunk in response:
+        content = chunk['message']['content']
+        print(content, end="", flush= True)
+        full_response += content
     print("\n")
+    
+    history.append({"role": "user", "content": question})
+    history.append({"role": "assistant", "content": full_response})
+    
+    if len(history) > 8:
+        history.pop(0)
+        history.pop(0)
+        
 
 if __name__ == "__main__":
     print("...local docments reader...")
@@ -101,6 +102,8 @@ if __name__ == "__main__":
         print("No data found. Add files in the folder")
     else:
         print(f"data loaded: {len(knowledge)} characters.")
+    
+    chat_history = []
         
     try:
         
@@ -111,7 +114,7 @@ if __name__ == "__main__":
                 break
             
             if q.strip():
-                ask_ai(q, knowledge)
+                ask_ai(q, knowledge, chat_history)
     finally:
         observer.stop()
         observer.join()
