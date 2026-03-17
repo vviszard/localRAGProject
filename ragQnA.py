@@ -5,7 +5,21 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 BRAIN_DIR = "./brainSpace"
-MODEL = "qwen2.5:0.5b"
+MODEL = "qwen2.5:1.5b"
+
+def chunk_text(text, size= 800, overlap= 150):
+    '''
+    chunk_size = character per piece.
+    overlap = How many character to repeat from previous piece.
+    '''
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + size
+        chunks.append(text[start:end])
+        start += size - overlap
+    return chunks
+    
 
 def local_aggregator():
     # Reads the files in the folder and return structured context
@@ -28,7 +42,12 @@ def local_aggregator():
         try:
             with open(file_path,"r", encoding= "utf-8") as f:
                 content = f.read()
-                local_text += f"\n\n[DOCUMENT: {filename}]\n{content}\n[END {filename}]\n"
+                if len(content) > 1000:
+                    chunk_content = chunk_text(content)
+                    for i, text_piece in enumerate(chunk_content):
+                        local_text += f"\n[DOCUMENT: {filename} | PART: {i+1}]\n{text_piece}\n"
+                else:
+                    local_text += f"\n\n[DOCUMENT: {filename}]\n{content}\n[END {filename}]\n"
         except Exception as e:
             print(f"Error reading file {filename}: {e}")
             
@@ -47,6 +66,8 @@ def ask_ai(question, context):
         "You are a Local Document Assistant. Use ONLY the provided context to answer."
         "If the answer is not in the context, say 'I don't have that info in my local files.'"
         "Information is spread across multiple [DOCUMENT] tags. Link them together!"
+        "You must always start your answer with: 'Source: [Filename] (Part X)' if applicable"
+        "If the answer involves multiple documents, list all of them"
     )
     
     trimmed_context = context[:10000]
