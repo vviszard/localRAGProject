@@ -3,23 +3,11 @@ import os
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from ragTools import text_chunker, text_extractor
 
 BRAIN_DIR = "./brainSpace"
 MODEL = "qwen2.5:1.5b"
-
-def chunk_text(text, size= 800, overlap= 150):
-    '''
-    chunk_size = character per piece.
-    overlap = How many character to repeat from previous piece.
-    '''
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + size
-        chunks.append(text[start:end])
-        start += size - overlap
-    return chunks
-    
+SUPPORTED_EXT = ('.txt','.md','.pdf','docx')
 
 def local_aggregator():
     # Reads the files in the folder and return structured context
@@ -31,7 +19,7 @@ def local_aggregator():
         return ""
     # get all the '.txt' and '.md' files
     
-    files = [f for f in os.listdir(BRAIN_DIR) if f.endswith(('.txt','.md'))]
+    files = [f for f in os.listdir(BRAIN_DIR) if f.lower().endswith(SUPPORTED_EXT)]
     
     if not files:
         print("The Folder is empty.")
@@ -39,27 +27,40 @@ def local_aggregator():
     
     for filename in files:
         file_path = os.path.join(BRAIN_DIR, filename)
-        try:
-            with open(file_path,"r", encoding= "utf-8") as f:
-                content = f.read()
-                if len(content) > 1000:
-                    chunk_content = chunk_text(content)
-                    for i, text_piece in enumerate(chunk_content):
-                        local_text += f"\n[DOCUMENT: {filename} | PART: {i+1}]\n{text_piece}\n"
-                else:
-                    local_text += f"\n\n[DOCUMENT: {filename}]\n{content}\n[END {filename}]\n"
-        except Exception as e:
-            print(f"Error reading file {filename}: {e}")
+            
+        content = text_extractor(file_path)
+        
+        if not content.strip():
+            continue
+            
+        if len(content) > 1000:
+            chunk_content = text_chunker(content)
+            for i, text_piece in enumerate(chunk_content):
+                local_text += f"\n[DOCUMENT: {filename} | PART: {i+1}]\n{text_piece}\n"
+        else:
+            local_text += f"\n\n[DOCUMENT: {filename}]\n{content}\n[END {filename}]\n"
             
     return local_text
 
 class BrainSentry(FileSystemEventHandler):
-    def on_modified(self, event):
+    
+    def handle_change(self, event):
         if not event.is_directory and event.src_path.endswith(('.txt','.md')):
             global knowledge
-            print(f"\nChange detected in {os.path.basename(event.src_path)}... refreshing context data")
-            knowledge = local_aggregator()
-            print("\nGPT: ", end="")
+            filename = os.path.basename(event.src_path)
+            event_type = event.event_type.upper()
+            print(f"\n[BrainSpace]: {event_type} {filename} | Context Updated -> {len(knowledge)} Characters.")
+            knowledge = local_aggregator()            
+            print("\n[BrainSpace]: ", end="")
+    def on_modified(self, event):
+        self.handle_change(event)
+    def on_created(self, event):
+        self.handle_change(event)
+    def on_deleted(self, event):
+        self.handle_change(event)
+    def on_moved(self, event):
+        self.handle_change(event)
+        
             
 def ask_ai(question, context, history):
     
@@ -74,7 +75,7 @@ def ask_ai(question, context, history):
     response = ollama.chat(model= MODEL, messages= messages, stream = True)
     
     full_response= ""
-    print("\nGPT: ", end= "")
+    print("\n[BrainSpace]: ", end= "")
     for chunk in response:
         content = chunk['message']['content']
         print(content, end="", flush= True)
